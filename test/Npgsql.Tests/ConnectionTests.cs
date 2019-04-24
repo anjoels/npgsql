@@ -456,6 +456,18 @@ namespace Npgsql.Tests
         {
             using (var conn = new NpgsqlConnection(ConnectionString))
                 Assert.That(conn.DataSource, Is.EqualTo($"tcp://{conn.Host}:{conn.Port}"));
+
+            var bld = new NpgsqlConnectionStringBuilder(ConnectionString);
+            bld.Host = "Otherhost";
+
+            using (var conn = new NpgsqlConnection(bld.ToString()))
+                Assert.That(conn.DataSource, Is.EqualTo($"tcp://{conn.Host}:{conn.Port}"));
+
+            bld = new NpgsqlConnectionStringBuilder(ConnectionString);
+            bld.Port = 5435;
+
+            using (var conn = new NpgsqlConnection(bld.ToString()))
+                Assert.That(conn.DataSource, Is.EqualTo($"tcp://{conn.Host}:{conn.Port}"));
         }
 
         [Test]
@@ -619,9 +631,9 @@ namespace Npgsql.Tests
                 {
                     connection.Open();
                     command.Connection = connection;
-                    command.Transaction = connection.BeginTransaction();
+                    var tx = connection.BeginTransaction();
                     command.ExecuteScalar();
-                    command.Transaction.Commit();
+                    tx.Commit();
                 }
             }
         }
@@ -1011,19 +1023,27 @@ namespace Npgsql.Tests
             var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
             {
                 ApplicationName = nameof(NoTypeLoading),
-                ServerCompatibilityMode = ServerCompatibilityMode.NoTypeLoading,
-                Pooling = false
+                ServerCompatibilityMode = ServerCompatibilityMode.NoTypeLoading
             }.ToString();
 
-            using (var conn = OpenConnection(connString))
+            try
             {
-                // Arrays should not be supported in this mode
-                Assert.That(() => conn.ExecuteScalar("SELECT '{1,2,3}'::INTEGER[]"), Throws.Exception.TypeOf<NotSupportedException>());
-                // Test that some basic types do work
-                Assert.That(conn.ExecuteScalar("SELECT 8"), Is.EqualTo(8));
-                Assert.That(conn.ExecuteScalar("SELECT 'foo'"), Is.EqualTo("foo"));
-                Assert.That(conn.ExecuteScalar("SELECT TRUE"), Is.EqualTo(true));
-                Assert.That(conn.ExecuteScalar("SELECT INET '192.168.1.1'"), Is.EqualTo(IPAddress.Parse("192.168.1.1")));
+                using (var conn = OpenConnection(connString))
+                {
+                    // Arrays should not be supported in this mode
+                    Assert.That(() => conn.ExecuteScalar("SELECT '{1,2,3}'::INTEGER[]"),
+                        Throws.Exception.TypeOf<NotSupportedException>());
+                    // Test that some basic types do work
+                    Assert.That(conn.ExecuteScalar("SELECT 8"), Is.EqualTo(8));
+                    Assert.That(conn.ExecuteScalar("SELECT 'foo'"), Is.EqualTo("foo"));
+                    Assert.That(conn.ExecuteScalar("SELECT TRUE"), Is.EqualTo(true));
+                    Assert.That(conn.ExecuteScalar("SELECT INET '192.168.1.1'"),
+                        Is.EqualTo(IPAddress.Parse("192.168.1.1")));
+                }
+            }
+            finally
+            {
+                NpgsqlConnection.ClearPool(new NpgsqlConnection(connString));
             }
         }
 
@@ -1045,7 +1065,7 @@ namespace Npgsql.Tests
             }
         }
 
-#if NET452
+#if NET461
         [Test, IssueLink("https://github.com/npgsql/npgsql/issues/392")]
         public void NonUTF8Encoding()
         {
@@ -1155,6 +1175,18 @@ namespace Npgsql.Tests
             };
             using (OpenConnection(csb))
                 Thread.Sleep(Timeout.Infinite);
+        }
+
+        [Test]
+        public void ChangeParameter()
+        {
+            using (var conn = OpenConnection())
+            {
+                conn.ExecuteNonQuery("SET application_name = 'some_test_value'");
+                Assert.That(conn.PostgresParameters["application_name"], Is.EqualTo("some_test_value"));
+                conn.ExecuteNonQuery("SET application_name = 'some_test_value2'");
+                Assert.That(conn.PostgresParameters["application_name"], Is.EqualTo("some_test_value2"));
+            }
         }
 
         #region pgpass

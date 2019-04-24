@@ -1,10 +1,9 @@
 ﻿using System;
 using JetBrains.Annotations;
 using Npgsql.BackendMessages;
-using Npgsql.FrontendMessages;
 using Npgsql.Logging;
 using NpgsqlTypes;
-using static Npgsql.Statics;
+using static Npgsql.Util.Statics;
 
 namespace Npgsql
 {
@@ -51,18 +50,20 @@ namespace Npgsql
             _buf = connector.WriteBuffer;
             _column = -1;
 
-            try
-            {
-                _connector.SendQuery(copyFromCommand);
+            _connector.WriteQuery(copyFromCommand);
+            _connector.Flush();
 
-                CopyInResponseMessage copyInResponse;
-                var msg = _connector.ReadMessage();
-                switch (msg.Code)
-                {
+            CopyInResponseMessage copyInResponse;
+            var msg = _connector.ReadMessage();
+            switch (msg.Code)
+            {
                 case BackendMessageCode.CopyInResponse:
                     copyInResponse = (CopyInResponseMessage)msg;
                     if (!copyInResponse.IsBinary)
+                    {
+                        _connector.Break();
                         throw new ArgumentException("copyFromCommand triggered a text transfer, only binary is allowed", nameof(copyFromCommand));
+                    }
                     break;
                 case BackendMessageCode.CompletedResponse:
                     throw new InvalidOperationException(
@@ -71,18 +72,12 @@ namespace Npgsql
                         "Note that your data has been successfully imported/exported.");
                 default:
                     throw _connector.UnexpectedMessageReceived(msg.Code);
-                }
+            }
 
-                NumColumns = copyInResponse.NumColumns;
-                _params = new NpgsqlParameter[NumColumns];
-                _buf.StartCopyMode();
-                WriteHeader();
-            }
-            catch
-            {
-                _connector.Break();
-                throw;
-            }
+            NumColumns = copyInResponse.NumColumns;
+            _params = new NpgsqlParameter[NumColumns];
+            _buf.StartCopyMode();
+            WriteHeader();
         }
 
         void WriteHeader()
@@ -276,8 +271,8 @@ namespace Npgsql
                 WriteTrailer();
                 _buf.Flush();
                 _buf.EndCopyMode();
-
-                _connector.SendMessage(CopyDoneMessage.Instance);
+                _connector.WriteCopyDone();
+                _connector.Flush();
                 var cmdComplete = Expect<CommandCompleteMessage>(_connector.ReadMessage());
                 Expect<ReadyForQueryMessage>(_connector.ReadMessage());
                 _state = ImporterState.Committed;
@@ -303,7 +298,8 @@ namespace Npgsql
             _state = ImporterState.Cancelled;
             _buf.Clear();
             _buf.EndCopyMode();
-            _connector.SendMessage(new CopyFailMessage());
+            _connector.WriteCopyFail();
+            _connector.Flush();
             try
             {
                 var msg = _connector.ReadMessage();
@@ -345,9 +341,15 @@ namespace Npgsql
 
         void Cleanup()
         {
-            Log.Debug("COPY operation ended", _connector.Id);
-            _connector.CurrentCopyOperation = null;
-            _connector = null;
+            var connector = _connector;
+            Log.Debug("COPY operation ended", connector?.Id ?? -1);
+
+            if (connector != null)
+            {
+                connector.CurrentCopyOperation = null;
+                _connector = null;
+            }
+
             _buf = null;
             _state = ImporterState.Disposed;
         }

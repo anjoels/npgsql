@@ -17,6 +17,7 @@ using Npgsql.NameTranslation;
 using Npgsql.TypeMapping;
 using NpgsqlTypes;
 using System.Transactions;
+using Npgsql.Util;
 using IsolationLevel = System.Data.IsolationLevel;
 
 namespace Npgsql
@@ -221,7 +222,7 @@ namespace Npgsql
             Debug.Assert(Connector.Connection != null, "Open done but connector not set on Connection");
             Log.Debug("Connection opened", Connector.Id);
             OnStateChange(new StateChangeEventArgs(ConnectionState.Closed, ConnectionState.Open));
-            return PGUtil.CompletedTask;
+            return Task.CompletedTask;
 
             async Task OpenLong()
             {
@@ -378,7 +379,7 @@ namespace Npgsql
         /// <summary>
         /// Gets the string identifying the database server (host and port)
         /// </summary>
-        public override string DataSource => $"tcp://{Host}:{Port}";
+        public override string DataSource => Settings.DataSourceCached;
 
         /// <summary>
         /// Whether to use Windows integrated security to log in.
@@ -537,7 +538,7 @@ namespace Npgsql
             using (connector.StartUserAction())
             {
                 if (connector.InTransaction)
-                    throw new NotSupportedException("Nested/Concurrent transactions aren't supported.");
+                    throw new InvalidOperationException("A transaction is already in progress; nested/concurrent transactions aren't supported.");
 
                 return new NpgsqlTransaction(this, level);
             }
@@ -915,7 +916,7 @@ namespace Npgsql
             connector.StartUserAction(ConnectorState.Copy);
             try
             {
-                var writer = new NpgsqlCopyTextWriter(new NpgsqlRawCopyStream(connector, copyFromCommand));
+                var writer = new NpgsqlCopyTextWriter(connector, new NpgsqlRawCopyStream(connector, copyFromCommand));
                 connector.CurrentCopyOperation = writer;
                 return writer;
             }
@@ -949,7 +950,7 @@ namespace Npgsql
             connector.StartUserAction(ConnectorState.Copy);
             try
             {
-                var reader = new NpgsqlCopyTextReader(new NpgsqlRawCopyStream(connector, copyToCommand));
+                var reader = new NpgsqlCopyTextReader(connector, new NpgsqlRawCopyStream(connector, copyToCommand));
                 connector.CurrentCopyOperation = reader;
                 return reader;
             }

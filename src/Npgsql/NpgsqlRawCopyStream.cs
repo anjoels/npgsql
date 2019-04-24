@@ -2,9 +2,8 @@
 using System.Diagnostics;
 using System.IO;
 using Npgsql.BackendMessages;
-using Npgsql.FrontendMessages;
 using Npgsql.Logging;
-using static Npgsql.Statics;
+using static Npgsql.Util.Statics;
 
 #pragma warning disable 1591
 
@@ -56,7 +55,10 @@ namespace Npgsql
             _connector = connector;
             _readBuf = connector.ReadBuffer;
             _writeBuf = connector.WriteBuffer;
-            _connector.SendQuery(copyCommand);
+
+            _connector.WriteQuery(copyCommand);
+            _connector.Flush();
+
             var msg = _connector.ReadMessage();
             switch (msg.Code)
             {
@@ -193,7 +195,8 @@ namespace Npgsql
                 _isDisposed = true;
                 _writeBuf.EndCopyMode();
                 _writeBuf.Clear();
-                _connector.SendMessage(new CopyFailMessage());
+                _connector.WriteCopyFail();
+                _connector.Flush();
                 try
                 {
                     var msg = _connector.ReadMessage();
@@ -228,7 +231,8 @@ namespace Npgsql
                 {
                     Flush();
                     _writeBuf.EndCopyMode();
-                    _connector.SendMessage(CopyDoneMessage.Instance);
+                    _connector.WriteCopyDone();
+                    _connector.Flush();
                     Expect<CommandCompleteMessage>(_connector.ReadMessage());
                     Expect<ReadyForQueryMessage>(_connector.ReadMessage());
                 }
@@ -304,10 +308,13 @@ namespace Npgsql
     /// </remarks>
     public sealed class NpgsqlCopyTextWriter : StreamWriter, ICancelable
     {
-        internal NpgsqlCopyTextWriter(NpgsqlRawCopyStream underlying) : base(underlying)
+        internal NpgsqlCopyTextWriter(NpgsqlConnector connector, NpgsqlRawCopyStream underlying) : base(underlying)
         {
             if (underlying.IsBinary)
+            {
+                connector.Break();
                 throw new Exception("Can't use a binary copy stream for text writing");
+            }
         }
 
         /// <summary>
@@ -327,10 +334,13 @@ namespace Npgsql
     /// </remarks>
     public sealed class NpgsqlCopyTextReader : StreamReader, ICancelable
     {
-        internal NpgsqlCopyTextReader(NpgsqlRawCopyStream underlying) : base(underlying)
+        internal NpgsqlCopyTextReader(NpgsqlConnector connector, NpgsqlRawCopyStream underlying) : base(underlying)
         {
             if (underlying.IsBinary)
+            {
+                connector.Break();
                 throw new Exception("Can't use a binary copy stream for text reading");
+            }
         }
 
         /// <summary>

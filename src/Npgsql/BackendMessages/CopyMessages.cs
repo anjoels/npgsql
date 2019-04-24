@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Npgsql.Util;
 
 namespace Npgsql.BackendMessages
 {
@@ -88,21 +89,10 @@ namespace Npgsql.BackendMessages
         }
     }
 
-    /// <remarks>
-    /// Note: This message is both a frontend and a backend message
-    /// </remarks>
-    class CopyDoneMessage : SimpleFrontendMessage, IBackendMessage
+    class CopyDoneMessage : IBackendMessage
     {
         public BackendMessageCode Code => BackendMessageCode.CopyDone;
         internal static readonly CopyDoneMessage Instance = new CopyDoneMessage();
         CopyDoneMessage() { }
-
-        internal override int Length => 5;
-
-        internal override void WriteFully(NpgsqlWriteBuffer buf)
-        {
-            buf.WriteByte((byte)BackendMessageCode.CopyDone);
-            buf.WriteInt32(4);
-        }
     }
 }

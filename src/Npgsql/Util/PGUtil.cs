@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Npgsql
+namespace Npgsql.Util
 {
     static class Statics
     {
@@ -20,8 +20,6 @@ namespace Npgsql
     // ReSharper disable once InconsistentNaming
     static class PGUtil
     {
-        internal static readonly byte[] EmptyBuffer = new byte[0];
-
         internal static readonly UTF8Encoding UTF8Encoding = new UTF8Encoding(false, true);
         internal static readonly UTF8Encoding RelaxedUTF8Encoding = new UTF8Encoding(false, false);
 
@@ -66,53 +64,13 @@ namespace Npgsql
         internal static int RotateShift(int val, int shift)
             => (val << shift) | (val >> (BitsInInt - shift));
 
-        // All ReverseEndianness methods came from the System.Buffers.Binary.BinaryPrimitives class.
-        // This takes advantage of the fact that the JIT can detect ROL32 / ROR32 patterns and output the correct intrinsic.
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static short ReverseEndianness(short value)
-            => (short)ReverseEndianness((ushort)value);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static int ReverseEndianness(int value)
-            => (int)ReverseEndianness((uint)value);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static long ReverseEndianness(long value)
-            => (long)ReverseEndianness((ulong)value);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static ushort ReverseEndianness(ushort value)
-            => (ushort)((value >> 8) + (value << 8));
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static uint ReverseEndianness(uint value)
-        {
-            var mask_xx_zz = (value & 0x00FF00FFU);
-            var mask_ww_yy = (value & 0xFF00FF00U);
-            return ((mask_xx_zz >> 8) | (mask_xx_zz << 24))
-                 + ((mask_ww_yy << 8) | (mask_ww_yy >> 24));
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static ulong ReverseEndianness(ulong value)
-            => ((ulong)ReverseEndianness((uint)value) << 32) + ReverseEndianness((uint)(value >> 32));
-
-        internal static readonly Task CompletedTask = Task.FromResult(0);
         internal static readonly Task<bool> TrueTask = Task.FromResult(true);
         internal static readonly Task<bool> FalseTask = Task.FromResult(false);
-        internal static readonly Task<int> CancelledTask = CreateCancelledTask<int>();
-
-        static Task<T> CreateCancelledTask<T>()
-        {
-            var source = new TaskCompletionSource<T>();
-            source.SetCanceled();
-            return source.Task;
-        }
 
         internal static StringComparer InvariantCaseIgnoringStringComparer => StringComparer.InvariantCultureIgnoreCase;
 
         internal static bool IsWindows =>
-#if NET452
+#if NET461
             Environment.OSVersion.Platform == PlatformID.Win32NT;
 #else
             System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
@@ -125,7 +83,7 @@ namespace Npgsql
         Binary = 1
     }
 
-    internal static class EnumerableExtensions
+    static class EnumerableExtensions
     {
         internal static string Join(this IEnumerable<string> values, string separator)
         {
@@ -170,7 +128,7 @@ namespace Npgsql
         internal CultureSetter(CultureInfo newCulture)
         {
             _oldCulture = CultureInfo.CurrentCulture;
-#if NET452
+#if NET461
             Thread.CurrentThread.CurrentCulture = newCulture;
 #else
             CultureInfo.CurrentCulture = newCulture;
@@ -179,7 +137,7 @@ namespace Npgsql
 
         public void Dispose()
         {
-#if NET452
+#if NET461
             Thread.CurrentThread.CurrentCulture = _oldCulture;
 #else
             CultureInfo.CurrentCulture = _oldCulture;
